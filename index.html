@@ -37,8 +37,8 @@
         </div>
 
         <div class="relative">
-            <label class="block text-sm font-medium text-gray-700 mb-1">📷 カメラ (数字を枠に収めてください)</label>
-            <div id="cameraContainer" class="relative rounded-lg overflow-hidden bg-black aspect-video flex justify-center items-center">
+            <label class="block text-sm font-medium text-gray-700 mb-1">📷 カメラ (枠内に数字を合わせてください)</label>
+            <div id="cameraContainer" class="relative rounded-lg overflow-hidden bg-black aspect-[4/3] flex justify-center items-center">
                 
                 <div id="cameraOverlay" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-800 z-10">
                     <p class="text-white text-sm mb-4 text-center px-4">カメラを使用して数字を読み取ります。<br>アクセスを許可してください。</p>
@@ -48,8 +48,15 @@
                 </div>
 
                 <video id="video" autoplay playsinline class="w-full h-full object-cover hidden"></video>
-                <div id="guideOverlay" class="absolute inset-0 border-4 border-blue-500/50 m-4 rounded-lg pointer-events-none flex items-center justify-center hidden">
-                    <span class="text-blue-500/50 text-xs font-bold bg-gray-900/50 px-2 py-1 rounded">ここに数字を合わせる</span>
+                
+                <!-- 撮影の目安となるガイド枠 (3桁-3桁-4桁用に調整) -->
+                <div id="guideOverlay" class="absolute inset-0 pointer-events-none flex items-center justify-center hidden overflow-hidden">
+                    <!-- 周囲を暗くし、中央をくり抜くデザイン -->
+                    <div class="w-[80%] h-[20%] border-2 border-green-500 flex items-center justify-between px-[15%] relative shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]">
+                        <span class="text-green-500/60 text-3xl font-bold font-mono">-</span>
+                        <span class="text-green-500/60 text-3xl font-bold font-mono">-</span>
+                        <span class="absolute -top-6 left-0 right-0 text-center text-white text-xs font-bold drop-shadow">000 - 000 - 0000</span>
+                    </div>
                 </div>
             </div>
             <canvas id="canvas" class="hidden"></canvas>
@@ -66,7 +73,7 @@
         <div>
             <label for="scanResult" class="block text-sm font-medium text-gray-700 mb-1">🔢 読み取り結果 (手修正可能)</label>
             <div class="flex">
-                <input type="text" id="scanResult" placeholder="結果がここに表示されます" 
+                <input type="text" id="scanResult" placeholder="000-000-0000" 
                     class="block w-full border border-gray-300 bg-white rounded-l-md shadow-sm p-3 text-xl font-mono text-center focus:ring-blue-500 focus:border-blue-500">
                 <button id="clearBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-600 px-4 rounded-r-md border border-l-0 border-gray-300 transition-colors">
                     クリア
@@ -81,6 +88,7 @@
                 スプレッドシートに送信
             </button>
             <div id="statusMsg" class="text-center text-sm font-bold h-auto min-h-[1.5rem] text-gray-600"></div>
+            <!-- OCRの進捗表示用 (高速化したため一瞬で終わる可能性があります) -->
             <div id="ocrProgress" class="w-full bg-gray-200 rounded-full h-1.5 hidden mt-1">
                 <div id="ocrProgressBar" class="bg-indigo-600 h-1.5 rounded-full" style="width: 0%"></div>
             </div>
@@ -100,17 +108,47 @@
             const ocrProgress = document.getElementById('ocrProgress');
             const ocrProgressBar = document.getElementById('ocrProgressBar');
             
-            // UI要素の追加分
             const startCameraBtn = document.getElementById('startCameraBtn');
             const cameraOverlay = document.getElementById('cameraOverlay');
             const guideOverlay = document.getElementById('guideOverlay');
 
+            // --- 高速化: Tesseract Workerの事前準備 ---
+            let ocrWorker = null;
+            let isWorkerReady = false;
+
+            async function prepareWorker() {
+                try {
+                    statusMsg.textContent = "OCRエンジンを準備中...";
+                    statusMsg.className = "text-center text-xs font-bold text-gray-400";
+                    
+                    ocrWorker = await Tesseract.createWorker('eng', 1, {
+                        logger: m => {
+                            if (m.status === 'recognizing text' && !video.classList.contains('hidden')) {
+                                ocrProgressBar.style.width = `${m.progress * 100}%`;
+                            }
+                        }
+                    });
+                    
+                    // 精度向上のための設定
+                    await ocrWorker.setParameters({
+                        tessedit_char_whitelist: '0123456789-', // 数字とハイフンのみ許可
+                        tessedit_pageseg_mode: 7, // (Treat the image as a single text line) 1行として認識
+                    });
+                    
+                    isWorkerReady = true;
+                    statusMsg.textContent = "";
+                    console.log("OCR Worker準備完了");
+                } catch (err) {
+                    console.error("Worker準備エラー:", err);
+                }
+            }
+            // ページロード時に裏側で準備を開始
+            prepareWorker();
+
+
             // --- LIFF (LINE連携) の初期化 ---
-            // ご提示いただいたLIFF IDを設定済み
             const myLiffId = "2010662857-EkXbgMvQ"; 
-            
             try {
-                // LIFF IDが設定されている場合のみ初期化を実行
                 if (myLiffId !== "YOUR_LIFF_ID_HERE" && myLiffId !== "") {
                     await liff.init({ liffId: myLiffId });
                     console.log("LIFF初期化成功");
@@ -140,15 +178,14 @@
                     startCameraBtn.disabled = true;
                     statusMsg.innerHTML = "";
 
+                    // カメラのアスペクト比を枠に近づける
                     const stream = await navigator.mediaDevices.getUserMedia({ 
                         video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
                     });
                     video.srcObject = stream;
                     
-                    // iOS Safari対策：明示的に動画の再生を開始する
                     await video.play();
                     
-                    // カメラの起動に成功したらUIを切り替える
                     video.classList.remove('hidden');
                     guideOverlay.classList.remove('hidden');
                     cameraOverlay.classList.add('hidden');
@@ -159,7 +196,6 @@
                     startCameraBtn.textContent = "カメラを起動";
                     startCameraBtn.disabled = false;
                     
-                    // エラーメッセージを詳細にし、解除手順を案内する
                     statusMsg.innerHTML = `
                         カメラのアクセスが拒否されています。<br>
                         <div class="mt-2 text-left bg-red-50 p-2 rounded border border-red-200 text-xs font-normal text-gray-700">
@@ -174,15 +210,18 @@
                     statusMsg.className = "text-center text-sm font-bold h-auto mt-2 text-red-600";
                 }
             }
-            
-            // ユーザーのタップ操作をトリガーにしてカメラを起動する
             startCameraBtn.addEventListener('click', startCamera);
 
-            // --- 画像の撮影とOCR実行 ---
+            // --- 画像の撮影とOCR実行 (高速化版) ---
             captureBtn.addEventListener('click', async () => {
                 if (!video.srcObject) {
                     statusMsg.textContent = "先にカメラを起動してください。";
                     statusMsg.className = "text-center text-sm font-bold text-red-600";
+                    return;
+                }
+                if (!isWorkerReady) {
+                    statusMsg.textContent = "OCRエンジンの準備が終わっていません。数秒お待ちください。";
+                    statusMsg.className = "text-center text-sm font-bold text-yellow-600";
                     return;
                 }
 
@@ -193,42 +232,44 @@
                 ocrProgress.classList.remove('hidden');
                 ocrProgressBar.style.width = '0%';
 
-                // Canvasに現在の動画フレームを描画
                 const context = canvas.getContext('2d');
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const vw = video.videoWidth;
+                const vh = video.videoHeight;
+                
+                // ガイド枠に合わせて、動画の中央部分（幅80%、高さ20%）だけを切り抜く
+                // 画像サイズが小さくなるため、処理速度が飛躍的に向上します
+                const cropW = vw * 0.8;
+                const cropH = vh * 0.2;
+                const cropX = (vw - cropW) / 2;
+                const cropY = (vh - cropH) / 2;
+
+                canvas.width = cropW;
+                canvas.height = cropH;
+                context.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
                 try {
-                    // Tesseractワーカーの作成と初期化（英語モードで数字のみに限定）
-                    const worker = await Tesseract.createWorker('eng', 1, {
-                        logger: m => {
-                            if (m.status === 'recognizing text') {
-                                ocrProgressBar.style.width = `${m.progress * 100}%`;
-                            }
-                        }
-                    });
+                    // 使い回しているワーカーで画像認識を実行
+                    const { data: { text } } = await ocrWorker.recognize(canvas);
+
+                    // 認識結果の整形処理
+                    const cleanText = text.replace(/[^0-9\-]/g, ''); // 数字とハイフン以外を削除
+                    const numbersOnly = cleanText.replace(/\-/g, ''); // 数字のみを抽出
                     
-                    // 数字のみを認識するようにパラメータを設定
-                    await worker.setParameters({
-                        tessedit_char_whitelist: '0123456789',
-                    });
+                    let formattedText = cleanText;
 
-                    // 画像認識の実行
-                    const { data: { text } } = await worker.recognize(canvas);
-                    await worker.terminate();
+                    // 数字が10桁読み取れた場合は「3桁-3桁-4桁」に自動整形
+                    if (numbersOnly.length === 10) {
+                        formattedText = `${numbersOnly.slice(0,3)}-${numbersOnly.slice(3,6)}-${numbersOnly.slice(6,10)}`;
+                    }
 
-                    // 認識したテキストから改行や空白を除去
-                    const cleanText = text.replace(/\s+/g, '');
-
-                    if (cleanText) {
-                        scanResultInput.value = cleanText;
+                    if (formattedText) {
+                        scanResultInput.value = formattedText;
                         sendBtn.disabled = false;
-                        statusMsg.textContent = "✅ 読み取り完了！必要なら修正してください。";
+                        statusMsg.textContent = "✅ 読み取り完了！";
                         statusMsg.className = "text-center text-sm font-bold text-green-600";
                         if (navigator.vibrate) navigator.vibrate(100);
                     } else {
-                        statusMsg.textContent = "⚠️ 数字が見つかりませんでした。再度撮影してください。";
+                        statusMsg.textContent = "⚠️ 読み取れませんでした。枠に合わせて再度撮影してください。";
                         statusMsg.className = "text-center text-sm font-bold text-yellow-600";
                     }
 
@@ -286,4 +327,5 @@
         });
     </script>
 </body>
+</html>
 </html>
