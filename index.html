@@ -1,4 +1,4 @@
-!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
@@ -253,7 +253,7 @@
                     await performScan(true); // isAuto = true
                 }
                 
-                // スキャン間隔を 1000ms から 100ms に短縮（体感速度の大幅アップ）
+                // スキャン間隔を 0.1秒(100ms) に短縮（超高速化）
                 setTimeout(autoScanLoop, 100);
             }
 
@@ -406,7 +406,7 @@
                     isScanning = false;
                     if (!isAuto) {
                         captureBtn.disabled = false;
-                        setTimeout(() => { ocrProgress.classList.add('hidden'); }, 1000);
+                        setTimeout(() => { ocrProgress.classList.add('hidden'); }, 100);
                     }
                 }
             }
