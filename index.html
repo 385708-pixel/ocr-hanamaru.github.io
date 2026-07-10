@@ -56,8 +56,8 @@
                     <!-- 周囲を暗くし、中央をくり抜くデザイン -->
                     <div class="w-[85%] h-[20%] border-2 border-green-500 flex items-center justify-center relative shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]">
                         <div class="flex items-center text-green-500/80 text-xl font-bold font-mono tracking-[0.2em]">
-                            <!-- 透明な文字で幅を確保し、ハイフンだけを表示する -->
-                            <span class="invisible">000</span><span class="mx-1 mb-1">-</span><span class="invisible">000</span><span class="mx-1 mb-1">-</span><span class="invisible">0000</span>
+                            <!-- 透明な文字で幅を確保し、ハイフンだけを表示する (scale-xで長さを2倍に) -->
+                            <span class="invisible">000</span><span class="mx-3 mb-1 transform scale-x-[2] inline-block">-</span><span class="invisible">000</span><span class="mx-3 mb-1 transform scale-x-[2] inline-block">-</span><span class="invisible">0000</span>
                         </div>
                         <span class="absolute -top-6 left-0 right-0 text-center text-white text-xs font-bold drop-shadow">枠に合わせると自動で読み取ります</span>
                     </div>
