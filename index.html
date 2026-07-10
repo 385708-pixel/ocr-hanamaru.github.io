@@ -55,10 +55,11 @@
                 <div id="guideOverlay" class="absolute inset-0 pointer-events-none flex items-center justify-center hidden overflow-hidden">
                     <!-- 周囲を暗くし、中央をくり抜くデザイン -->
                     <div class="w-[85%] h-[20%] border-2 border-green-500 flex items-center justify-center relative shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]">
-                        <div class="flex items-center text-green-500/50 text-xl font-bold font-mono tracking-[0.2em]">
-                            <span>○○○</span><span class="mx-1 mb-1">-</span><span>○○○</span><span class="mx-1 mb-1">-</span><span>○○○○</span>
+                        <div class="flex items-center text-green-500/80 text-xl font-bold font-mono tracking-[0.2em]">
+                            <!-- 透明な文字で幅を確保し、ハイフンだけを表示する -->
+                            <span class="invisible">000</span><span class="mx-1 mb-1">-</span><span class="invisible">000</span><span class="mx-1 mb-1">-</span><span class="invisible">0000</span>
                         </div>
-                        <span class="absolute -top-6 left-0 right-0 text-center text-white text-xs font-bold drop-shadow">枠に合わせてください</span>
+                        <span class="absolute -top-6 left-0 right-0 text-center text-white text-xs font-bold drop-shadow">枠に合わせると自動で読み取ります</span>
                     </div>
                 </div>
             </div>
@@ -69,7 +70,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
-                撮影して数字を読み取る
+                手動で撮影する
             </button>
         </div>
 
@@ -148,6 +149,8 @@
             // --- 高速化: Tesseract Workerの事前準備 ---
             let ocrWorker = null;
             let isWorkerReady = false;
+            let isScanning = false;
+            let isAutoScanningActive = false;
 
             async function prepareWorker() {
                 try {
@@ -156,7 +159,8 @@
                     
                     ocrWorker = await Tesseract.createWorker('eng', 1, {
                         logger: m => {
-                            if (m.status === 'recognizing text' && !video.classList.contains('hidden')) {
+                            // 手動スキャン時（プログレスバーが表示されている時）のみプログレスバーを更新
+                            if (m.status === 'recognizing text' && !ocrProgress.classList.contains('hidden')) {
                                 ocrProgressBar.style.width = `${m.progress * 100}%`;
                             }
                         }
@@ -177,7 +181,6 @@
             }
             // ページロード時に裏側で準備を開始
             prepareWorker();
-
 
             // --- LIFF (LINE連携) の初期化 ---
             const myLiffId = "2010662857-EkXbgMvQ"; 
@@ -219,6 +222,19 @@
                 sendBtn.disabled = scanResultInput.value.trim() === "";
             });
 
+            // --- 自動読み取りのループ処理 ---
+            async function autoScanLoop() {
+                if (!isAutoScanningActive) return;
+                
+                // スキャン実行条件: 準備完了 ＆ カメラ表示中 ＆ 結果が空 ＆ 現在スキャン中でない
+                if (isWorkerReady && !video.classList.contains('hidden') && scanResultInput.value.trim() === "" && !isScanning) {
+                    await performScan(true); // isAuto = true
+                }
+                
+                // 次のループを1秒後に実行（スマホの負荷を抑えるための間隔）
+                setTimeout(autoScanLoop, 1000);
+            }
+
             // --- カメラの起動 ---
             async function startCamera() {
                 try {
@@ -238,6 +254,10 @@
                     guideOverlay.classList.remove('hidden');
                     cameraOverlay.classList.add('hidden');
                     statusMsg.textContent = "";
+
+                    // カメラ起動成功後に自動読み取りループを開始
+                    isAutoScanningActive = true;
+                    autoScanLoop();
 
                 } catch (err) {
                     console.error("カメラの起動に失敗しました:", err);
@@ -260,8 +280,94 @@
             }
             startCameraBtn.addEventListener('click', startCamera);
 
-            // --- 画像の撮影とOCR実行 (高速化版) ---
-            captureBtn.addEventListener('click', async () => {
+            // --- 画像の撮影とOCR実行 (共通関数) ---
+            async function performScan(isAuto = false) {
+                if (isScanning || !video.srcObject || !isWorkerReady) return;
+
+                isScanning = true;
+
+                if (!isAuto) {
+                    // 手動スキャン時のUI更新
+                    captureBtn.disabled = true;
+                    statusMsg.textContent = "画像を解析中...";
+                    statusMsg.className = "text-center text-sm font-bold text-indigo-600";
+                    ocrProgress.classList.remove('hidden');
+                    ocrProgressBar.style.width = '0%';
+                } else {
+                    // 自動スキャン時のUI更新
+                    statusMsg.textContent = "自動で数字を探しています...";
+                    statusMsg.className = "text-center text-sm font-bold text-gray-500 animate-pulse";
+                }
+
+                const context = canvas.getContext('2d');
+                const vw = video.videoWidth;
+                const vh = video.videoHeight;
+                
+                // ガイド枠に合わせて、動画の中央部分（幅85%、高さ20%）だけを切り抜く
+                const cropW = vw * 0.85;
+                const cropH = vh * 0.20;
+                const cropX = (vw - cropW) / 2;
+                const cropY = (vh - cropH) / 2;
+
+                canvas.width = cropW;
+                canvas.height = cropH;
+                context.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+                try {
+                    const { data: { text } } = await ocrWorker.recognize(canvas);
+
+                    // 認識結果の整形処理
+                    const cleanText = text.replace(/[^0-9\-]/g, ''); 
+                    const numbersOnly = cleanText.replace(/\-/g, ''); 
+                    
+                    let formattedText = cleanText;
+                    let isSuccess = false;
+
+                    // 数字がちょうど10桁読み取れた場合は成功とする
+                    if (numbersOnly.length === 10) {
+                        formattedText = `${numbersOnly.slice(0,3)}-${numbersOnly.slice(3,6)}-${numbersOnly.slice(6,10)}`;
+                        isSuccess = true;
+                    }
+
+                    if (isSuccess) {
+                        scanResultInput.value = formattedText;
+                        sendBtn.disabled = false;
+                        statusMsg.textContent = "✅ 読み取り完了！";
+                        statusMsg.className = "text-center text-sm font-bold text-green-600";
+                        statusMsg.classList.remove('animate-pulse');
+                        if (navigator.vibrate) navigator.vibrate([100, 50, 100]); // 成功時はバイブレーション
+                    } else if (!isAuto) {
+                        // 手動スキャンの時だけ、10桁じゃなくても強制的にInputに入れる
+                        if (formattedText) {
+                            scanResultInput.value = formattedText;
+                            sendBtn.disabled = false;
+                            statusMsg.textContent = "⚠️ フォーマットと異なりますが読み取りました。修正してください。";
+                            statusMsg.className = "text-center text-sm font-bold text-yellow-600";
+                        } else {
+                            statusMsg.textContent = "⚠️ 読み取れませんでした。枠に合わせて再度撮影してください。";
+                            statusMsg.className = "text-center text-sm font-bold text-yellow-600";
+                        }
+                        statusMsg.classList.remove('animate-pulse');
+                    }
+
+                } catch (err) {
+                    console.error("OCRエラー:", err);
+                    if (!isAuto) {
+                        statusMsg.textContent = "❌ 解析中にエラーが発生しました。";
+                        statusMsg.className = "text-center text-sm font-bold text-red-600";
+                        statusMsg.classList.remove('animate-pulse');
+                    }
+                } finally {
+                    isScanning = false;
+                    if (!isAuto) {
+                        captureBtn.disabled = false;
+                        setTimeout(() => { ocrProgress.classList.add('hidden'); }, 1000);
+                    }
+                }
+            }
+
+            // 手動撮影ボタンの処理
+            captureBtn.addEventListener('click', () => {
                 if (!video.srcObject) {
                     statusMsg.textContent = "先にカメラを起動してください。";
                     statusMsg.className = "text-center text-sm font-bold text-red-600";
@@ -272,63 +378,7 @@
                     statusMsg.className = "text-center text-sm font-bold text-yellow-600";
                     return;
                 }
-
-                // UI状態の更新
-                captureBtn.disabled = true;
-                statusMsg.textContent = "画像を解析中...";
-                statusMsg.className = "text-center text-sm font-bold text-indigo-600";
-                ocrProgress.classList.remove('hidden');
-                ocrProgressBar.style.width = '0%';
-
-                const context = canvas.getContext('2d');
-                const vw = video.videoWidth;
-                const vh = video.videoHeight;
-                
-                // ガイド枠に合わせて、動画の中央部分（幅80%、高さ20%）だけを切り抜く
-                // 画像サイズが小さくなるため、処理速度が飛躍的に向上します
-                const cropW = vw * 0.8;
-                const cropH = vh * 0.2;
-                const cropX = (vw - cropW) / 2;
-                const cropY = (vh - cropH) / 2;
-
-                canvas.width = cropW;
-                canvas.height = cropH;
-                context.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-
-                try {
-                    // 使い回しているワーカーで画像認識を実行
-                    const { data: { text } } = await ocrWorker.recognize(canvas);
-
-                    // 認識結果の整形処理
-                    const cleanText = text.replace(/[^0-9\-]/g, ''); // 数字とハイフン以外を削除
-                    const numbersOnly = cleanText.replace(/\-/g, ''); // 数字のみを抽出
-                    
-                    let formattedText = cleanText;
-
-                    // 数字が10桁読み取れた場合は「3桁-3桁-4桁」に自動整形
-                    if (numbersOnly.length === 10) {
-                        formattedText = `${numbersOnly.slice(0,3)}-${numbersOnly.slice(3,6)}-${numbersOnly.slice(6,10)}`;
-                    }
-
-                    if (formattedText) {
-                        scanResultInput.value = formattedText;
-                        sendBtn.disabled = false;
-                        statusMsg.textContent = "✅ 読み取り完了！";
-                        statusMsg.className = "text-center text-sm font-bold text-green-600";
-                        if (navigator.vibrate) navigator.vibrate(100);
-                    } else {
-                        statusMsg.textContent = "⚠️ 読み取れませんでした。枠に合わせて再度撮影してください。";
-                        statusMsg.className = "text-center text-sm font-bold text-yellow-600";
-                    }
-
-                } catch (err) {
-                    console.error("OCRエラー:", err);
-                    statusMsg.textContent = "❌ 解析中にエラーが発生しました。";
-                    statusMsg.className = "text-center text-sm font-bold text-red-600";
-                } finally {
-                    captureBtn.disabled = false;
-                    setTimeout(() => { ocrProgress.classList.add('hidden'); }, 1000);
-                }
+                performScan(false); // 手動スキャンを実行
             });
 
             // --- クリアボタンの処理 ---
@@ -336,6 +386,7 @@
                 scanResultInput.value = "";
                 sendBtn.disabled = true;
                 statusMsg.textContent = "";
+                // 値が空になったので、次の自動読み取りループが再開される
             });
 
             // --- GASへの送信処理 ---
