@@ -9,17 +9,14 @@
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     
     <script type="text/javascript">
-        // ページが完全に読み込まれた後に実行し、InvalidStateErrorを防ぐ
         window.addEventListener('load', function() {
             if ('serviceWorker' in navigator && window.isSecureContext) {
                 navigator.serviceWorker.getRegistrations().then(function(registrations) {
                     for (let registration of registrations) {
                         registration.unregister();
-                        console.log('他アプリとの干渉を防ぐため、Service Workerを解除しました。');
                     }
                 }).catch(function(err) {
-                    // サンドボックス環境などではエラーになるため、警告に留める
-                    console.warn('Service Workerの解除がスキップされました。環境によっては正常な動作です。', err.message);
+                    console.warn('Service Worker unregister failed', err.message);
                 });
             }
         });
@@ -45,11 +42,15 @@
 
                 <video id="video" autoplay playsinline class="w-full h-full object-cover hidden"></video>
                 
-                <!-- 撮影の目安となるガイド枠 -->
+                <!-- 撮影ガイド枠: 3-3-4の桁数に合わせて配置 -->
                 <div id="guideOverlay" class="absolute inset-0 pointer-events-none flex items-center justify-center hidden overflow-hidden">
                     <div class="w-[85%] h-[20%] border-2 border-green-500 flex items-center justify-center relative shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]">
-                        <div class="flex items-center text-green-500/80 text-xl font-bold font-mono tracking-[0.2em]">
-                            <span class="invisible">000</span><span class="mx-1 mb-1">-</span><span class="invisible">000</span><span class="mx-1 mb-1">-</span><span class="invisible">0000</span>
+                        <div class="flex items-center text-green-500/80 font-bold font-mono tracking-[0.05em]">
+                            <span class="invisible text-xl">000</span>
+                            <span class="mx-0.5 text-3xl font-bold">-</span>
+                            <span class="invisible text-xl">000</span>
+                            <span class="mx-0.5 text-3xl font-bold">-</span>
+                            <span class="invisible text-xl">0000</span>
                         </div>
                         <span class="absolute -top-6 left-0 right-0 text-center text-white text-xs font-bold drop-shadow">枠に合わせると自動で読み取ります</span>
                     </div>
@@ -67,7 +68,7 @@
         </div>
 
         <div>
-            <label for="scanResult" class="block text-sm font-medium text-gray-700 mb-1">🔢 読み取り結果 (手修正可能)</label>
+            <label for="scanResult" class="block text-sm font-medium text-gray-700 mb-1">🔢 読み取り結果</label>
             <div class="flex">
                 <input type="text" id="scanResult" placeholder="000-000-0000" maxlength="12"
                     class="block w-full border border-gray-300 bg-white rounded-l-md shadow-sm p-3 text-xl font-mono text-center focus:ring-blue-500 focus:border-blue-500">
@@ -75,7 +76,6 @@
                     クリア
                 </button>
             </div>
-            <p class="text-xs text-gray-500 mt-1">※OCRは誤認識することがあります。必要に応じて手動で修正してください。</p>
         </div>
 
         <div class="space-y-2">
