@@ -173,10 +173,8 @@
 
             // 手動入力時にハイフンを自動補完する処理
             scanResultInput.addEventListener('input', (e) => {
-                // 入力された文字から数字以外を除去
                 let val = e.target.value.replace(/[^0-9]/g, '');
                 
-                // 3桁-3桁-4桁の形式にフォーマット
                 let formatted = '';
                 if (val.length > 0) {
                     formatted = val.substring(0, 3);
@@ -188,20 +186,21 @@
                     formatted += '-' + val.substring(6, 10);
                 }
                 
-                // フォーマットされた値をセット
                 e.target.value = formatted;
-
                 sendBtn.disabled = scanResultInput.value.trim() === "";
             });
 
+            // --- 自動スキャンループ ---
             async function autoScanLoop() {
                 if (!isAutoScanningActive) return;
                 
                 if (isWorkerReady && !video.classList.contains('hidden') && scanResultInput.value.trim() === "" && !isScanning) {
-                    await performScan(true); 
+                    await performAutoScan(); 
                 }
                 
-                setTimeout(autoScanLoop, 100);
+                if (isAutoScanningActive) {
+                    setTimeout(autoScanLoop, 100);
+                }
             }
 
             async function startCamera() {
@@ -259,39 +258,89 @@
             }
             startCameraBtn.addEventListener('click', startCamera);
 
-            async function performScan(isAuto = false) {
-                if (isScanning || !video.srcObject || !isWorkerReady) return;
-
+            // --- 自動スキャン用の処理（裏で動く） ---
+            async function performAutoScan() {
                 isScanning = true;
-
-                if (!isAuto) {
-                    captureBtn.disabled = true;
-                    statusMsg.textContent = "画像を解析中...";
-                    statusMsg.className = "text-center text-sm font-bold text-indigo-600";
-                    ocrProgress.classList.remove('hidden');
-                    ocrProgressBar.style.width = '0%';
-                } else {
-                    statusMsg.textContent = "自動で数字を探しています...";
-                    statusMsg.className = "text-center text-sm font-bold text-gray-500 animate-pulse";
-                }
+                statusMsg.textContent = "自動で数字を探しています...";
+                statusMsg.className = "text-center text-sm font-bold text-gray-500 animate-pulse";
 
                 const context = canvas.getContext('2d');
                 const vw = video.videoWidth;
                 const vh = video.videoHeight;
                 
-                // ガイド枠に合わせて切り抜く範囲を拡大 (幅95%, 高さ20%)
                 const cropW = vw * 0.95;
                 const cropH = vh * 0.20;
                 const cropX = (vw - cropW) / 2;
                 const cropY = (vh - cropH) / 2;
-
-                // 枠を広げた分、解析キャンバスの解像度も上げて精度を保つ
                 const targetW = 600;
                 const targetH = Math.floor(cropH * (targetW / cropW));
 
                 canvas.width = targetW;
                 canvas.height = targetH;
-                
+                context.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
+                preprocessImage(context, targetW, targetH);
+
+                try {
+                    const { data: { text } } = await ocrWorker.recognize(canvas);
+                    
+                    // 手動スキャンが割り込んで自動スキャンが止められていた場合は結果を捨てる
+                    if (!isAutoScanningActive) return;
+
+                    const cleanText = text.replace(/[^0-9\-]/g, ''); 
+                    const numbersOnly = cleanText.replace(/\-/g, ''); 
+
+                    if (numbersOnly.length === 10) {
+                        const formattedText = `${numbersOnly.slice(0,3)}-${numbersOnly.slice(3,6)}-${numbersOnly.slice(6,10)}`;
+                        scanResultInput.value = formattedText;
+                        sendBtn.disabled = false;
+                        statusMsg.textContent = "✅ 読み取り完了！";
+                        statusMsg.className = "text-center text-sm font-bold text-green-600";
+                        statusMsg.classList.remove('animate-pulse');
+                        if (navigator.vibrate) navigator.vibrate([100, 50, 100]); 
+                        
+                        // 成功したので自動スキャンを停止
+                        isAutoScanningActive = false;
+                    }
+                } catch (err) {
+                    console.error("自動OCRエラー:", err);
+                } finally {
+                    isScanning = false;
+                }
+            }
+
+            // --- 手動スキャン用の処理（優先度最高） ---
+            async function performManualScan() {
+                if (!video.srcObject || !isWorkerReady) return;
+
+                // 1. 自動スキャンを即座に停止し、UIを更新
+                isAutoScanningActive = false;
+                captureBtn.disabled = true;
+                statusMsg.textContent = "画像を解析中...";
+                statusMsg.className = "text-center text-sm font-bold text-indigo-600";
+                statusMsg.classList.remove('animate-pulse');
+                ocrProgress.classList.remove('hidden');
+                ocrProgressBar.style.width = '0%';
+
+                // 2. 現在実行中の自動スキャンが終わるのを待つ（一瞬）
+                while (isScanning) {
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                }
+
+                isScanning = true;
+
+                // 3. 画像を切り抜いて解析
+                const context = canvas.getContext('2d');
+                const vw = video.videoWidth;
+                const vh = video.videoHeight;
+                const cropW = vw * 0.95;
+                const cropH = vh * 0.20;
+                const cropX = (vw - cropW) / 2;
+                const cropY = (vh - cropH) / 2;
+                const targetW = 600;
+                const targetH = Math.floor(cropH * (targetW / cropW));
+
+                canvas.width = targetW;
+                canvas.height = targetH;
                 context.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
                 preprocessImage(context, targetW, targetH);
 
@@ -309,42 +358,39 @@
                         isSuccess = true;
                     }
 
-                    if (isSuccess) {
+                    if (isSuccess || formattedText) {
                         scanResultInput.value = formattedText;
                         sendBtn.disabled = false;
-                        statusMsg.textContent = "✅ 読み取り完了！";
-                        statusMsg.className = "text-center text-sm font-bold text-green-600";
-                        statusMsg.classList.remove('animate-pulse');
-                        if (navigator.vibrate) navigator.vibrate([100, 50, 100]); 
-                    } else if (!isAuto) {
-                        if (formattedText) {
-                            scanResultInput.value = formattedText;
-                            sendBtn.disabled = false;
+                        if(isSuccess) {
+                            statusMsg.textContent = "✅ 読み取り完了！";
+                            statusMsg.className = "text-center text-sm font-bold text-green-600";
+                            if (navigator.vibrate) navigator.vibrate([100, 50, 100]); 
+                        } else {
                             statusMsg.textContent = "⚠️ フォーマットと異なりますが読み取りました。修正してください。";
                             statusMsg.className = "text-center text-sm font-bold text-yellow-600";
-                        } else {
-                            statusMsg.textContent = "⚠️ 読み取れませんでした。枠に合わせて再度撮影してください。";
-                            statusMsg.className = "text-center text-sm font-bold text-yellow-600";
                         }
-                        statusMsg.classList.remove('animate-pulse');
+                    } else {
+                        statusMsg.textContent = "⚠️ 読み取れませんでした。枠に合わせて再度撮影してください。";
+                        statusMsg.className = "text-center text-sm font-bold text-yellow-600";
                     }
-
                 } catch (err) {
-                    console.error("OCRエラー:", err);
-                    if (!isAuto) {
-                        statusMsg.textContent = "❌ 解析中にエラーが発生しました。";
-                        statusMsg.className = "text-center text-sm font-bold text-red-600";
-                        statusMsg.classList.remove('animate-pulse');
-                    }
+                    console.error("手動OCRエラー:", err);
+                    statusMsg.textContent = "❌ 解析中にエラーが発生しました。";
+                    statusMsg.className = "text-center text-sm font-bold text-red-600";
                 } finally {
                     isScanning = false;
-                    if (!isAuto) {
-                        captureBtn.disabled = false;
-                        setTimeout(() => { ocrProgress.classList.add('hidden'); }, 100);
+                    captureBtn.disabled = false;
+                    setTimeout(() => { ocrProgress.classList.add('hidden'); }, 100);
+                    
+                    // 読み取りに失敗（空欄）の場合のみ、自動スキャンを再開
+                    if (scanResultInput.value.trim() === "") {
+                        isAutoScanningActive = true;
+                        autoScanLoop();
                     }
                 }
             }
 
+            // 手動撮影ボタンのイベント
             captureBtn.addEventListener('click', () => {
                 if (!video.srcObject) {
                     statusMsg.textContent = "先にカメラを起動してください。";
@@ -356,13 +402,20 @@
                     statusMsg.className = "text-center text-sm font-bold text-yellow-600";
                     return;
                 }
-                performScan(false); 
+                // 手動スキャン処理を呼び出し
+                performManualScan(); 
             });
 
             clearBtn.addEventListener('click', () => {
                 scanResultInput.value = "";
                 sendBtn.disabled = true;
                 statusMsg.textContent = "";
+                
+                // クリアされたら自動スキャンを再開する
+                if (!isAutoScanningActive && !video.classList.contains('hidden')) {
+                    isAutoScanningActive = true;
+                    autoScanLoop();
+                }
             });
 
             sendBtn.addEventListener('click', () => {
@@ -391,6 +444,12 @@
                     setTimeout(() => {
                         scanResultInput.value = "";
                         statusMsg.textContent = "";
+                        
+                        // 送信成功後も自動スキャンを再開する
+                        if (!isAutoScanningActive && !video.classList.contains('hidden')) {
+                            isAutoScanningActive = true;
+                            autoScanLoop();
+                        }
                     }, 3000);
                 })
                 .catch(error => {
