@@ -9,6 +9,7 @@
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     
     <script type="text/javascript">
+        // ページが完全に読み込まれた後に実行し、InvalidStateErrorを防ぐ
         window.addEventListener('load', function() {
             if ('serviceWorker' in navigator && window.isSecureContext) {
                 navigator.serviceWorker.getRegistrations().then(function(registrations) {
@@ -17,6 +18,7 @@
                         console.log('他アプリとの干渉を防ぐため、Service Workerを解除しました。');
                     }
                 }).catch(function(err) {
+                    // サンドボックス環境などではエラーになるため、警告に留める
                     console.warn('Service Workerの解除がスキップされました。環境によっては正常な動作です。', err.message);
                 });
             }
@@ -32,8 +34,7 @@
 
         <div class="relative">
             <label class="block text-sm font-medium text-gray-700 mb-1">📷 カメラ (枠内に数字を合わせてください)</label>
-            <!-- プレビューを縦長(3:4)に変更し、スマホで自然な画角を確保 -->
-            <div id="cameraContainer" class="relative rounded-lg overflow-hidden bg-black aspect-[3/4] flex justify-center items-center">
+            <div id="cameraContainer" class="relative rounded-lg overflow-hidden bg-black aspect-[4/3] flex justify-center items-center">
                 
                 <div id="cameraOverlay" class="absolute inset-0 flex flex-col items-center justify-center bg-gray-800 z-10">
                     <p class="text-white text-sm mb-4 text-center px-4">カメラを使用して数字を読み取ります。<br>アクセスを許可してください。</p>
@@ -44,15 +45,13 @@
 
                 <video id="video" autoplay playsinline class="w-full h-full object-cover hidden"></video>
                 
-                <!-- 新しいガイド枠：3つのボックスデザイン -->
+                <!-- 撮影の目安となるガイド枠: スマホを離せるように枠を広く（w-95%, h-25%）変更 -->
                 <div id="guideOverlay" class="absolute inset-0 pointer-events-none flex items-center justify-center hidden overflow-hidden">
-                    <div id="scanTarget" class="w-[90%] max-w-sm h-20 border-2 border-green-500 flex items-center justify-center relative shadow-[0_0_0_9999px_rgba(0,0,0,0.6)] px-2 gap-1 rounded-sm bg-black/10">
-                        <div class="border border-green-500/50 h-[60%] flex-grow-[3] rounded flex items-center justify-center bg-green-500/10"></div>
-                        <div class="text-green-500 font-bold text-2xl">-</div>
-                        <div class="border border-green-500/50 h-[60%] flex-grow-[3] rounded flex items-center justify-center bg-green-500/10"></div>
-                        <div class="text-green-500 font-bold text-2xl">-</div>
-                        <div class="border border-green-500/50 h-[60%] flex-grow-[4] rounded flex items-center justify-center bg-green-500/10"></div>
-                        <span class="absolute -top-7 left-0 right-0 text-center text-white text-xs font-bold drop-shadow">それぞれの枠に数字を合わせてください</span>
+                    <div class="w-[95%] h-[25%] border-2 border-green-500 flex items-center justify-center relative shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]">
+                        <div class="flex items-center text-green-500/80 text-2xl font-bold font-mono tracking-[0.2em]">
+                            <span class="invisible">000</span><span class="mx-3 mb-1 transform scale-x-[2] inline-block">-</span><span class="invisible">000</span><span class="mx-3 mb-1 transform scale-x-[2] inline-block">-</span><span class="invisible">0000</span>
+                        </div>
+                        <span class="absolute -top-6 left-0 right-0 text-center text-white text-xs font-bold drop-shadow">枠に合わせると自動で読み取ります</span>
                     </div>
                 </div>
             </div>
@@ -107,7 +106,6 @@
             const startCameraBtn = document.getElementById('startCameraBtn');
             const cameraOverlay = document.getElementById('cameraOverlay');
             const guideOverlay = document.getElementById('guideOverlay');
-            const scanTarget = document.getElementById('scanTarget');
             
             // ★ここにGAS WebアプリURLを設定してください★
             const gasUrl = "https://script.google.com/macros/s/AKfycbx31PCvA6hknuzRD-g2v6wfBd8lritJ2ktpS1k2jjKmHR2XNSPmgbpth2g2fSFnIairqQ/exec";
@@ -173,8 +171,12 @@
                 statusMsg.className = "text-center text-sm font-bold h-auto mt-2 text-red-600";
             }
 
+            // 手動入力時にハイフンを自動補完する処理
             scanResultInput.addEventListener('input', (e) => {
+                // 入力された文字から数字以外を除去
                 let val = e.target.value.replace(/[^0-9]/g, '');
+                
+                // 3桁-3桁-4桁の形式にフォーマット
                 let formatted = '';
                 if (val.length > 0) {
                     formatted = val.substring(0, 3);
@@ -185,7 +187,10 @@
                 if (val.length > 6) {
                     formatted += '-' + val.substring(6, 10);
                 }
+                
+                // フォーマットされた値をセット
                 e.target.value = formatted;
+
                 sendBtn.disabled = scanResultInput.value.trim() === "";
             });
 
@@ -195,6 +200,7 @@
                 if (isWorkerReady && !video.classList.contains('hidden') && scanResultInput.value.trim() === "" && !isScanning) {
                     await performScan(true); 
                 }
+                
                 setTimeout(autoScanLoop, 100);
             }
 
@@ -206,17 +212,18 @@
 
                     let stream;
                     try {
-                        // 特定の解像度を指定せず、デバイスの最適な画角を取得する
                         stream = await navigator.mediaDevices.getUserMedia({ 
                             video: { 
                                 facingMode: "environment", 
+                                width: { ideal: 1280 }, 
+                                height: { ideal: 720 },
                                 advanced: [{ focusMode: "continuous" }] 
                             } 
                         });
                     } catch (e) {
                         console.warn("オートフォーカス指定がサポートされていないため、通常モードで起動します", e);
                         stream = await navigator.mediaDevices.getUserMedia({ 
-                            video: { facingMode: "environment" } 
+                            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
                         });
                     }
                     
@@ -269,36 +276,16 @@
                 }
 
                 const context = canvas.getContext('2d');
-                
-                // --- 画面上のガイド枠の位置を正確に計算して切り抜く ---
                 const vw = video.videoWidth;
                 const vh = video.videoHeight;
-                const cw = video.clientWidth;
-                const ch = video.clientHeight;
                 
-                // object-cover で表示されている動画のスケールを計算
-                const scale = Math.max(cw / vw, ch / vh);
-                const displayedW = vw * scale;
-                const displayedH = vh * scale;
-                
-                // videoコンテナの中央と、実際の動画の中央を合わせるオフセット
-                const offsetX = (displayedW - cw) / 2;
-                const offsetY = (displayedH - ch) / 2;
-                
-                // DOM上のガイド枠の座標を取得
-                const targetRect = scanTarget.getBoundingClientRect();
-                const videoRect = video.getBoundingClientRect();
-                
-                const targetLeft = targetRect.left - videoRect.left;
-                const targetTop = targetRect.top - videoRect.top;
-                
-                // 実際の動画ピクセル座標に変換
-                const cropX = (targetLeft + offsetX) / scale;
-                const cropY = (targetTop + offsetY) / scale;
-                const cropW = targetRect.width / scale;
-                const cropH = targetRect.height / scale;
+                // ガイド枠に合わせて切り抜く範囲を拡大 (幅95%, 高さ25%)
+                const cropW = vw * 0.95;
+                const cropH = vh * 0.25;
+                const cropX = (vw - cropW) / 2;
+                const cropY = (vh - cropH) / 2;
 
-                // 精度を保つため、解析キャンバスの横幅を600pxに固定
+                // 枠を広げた分、解析キャンバスの解像度も上げて精度を保つ
                 const targetW = 600;
                 const targetH = Math.floor(cropH * (targetW / cropW));
 
@@ -380,6 +367,8 @@
 
             sendBtn.addEventListener('click', () => {
                 const rawInput = scanResultInput.value.trim(); 
+                
+                // スプレッドシートに送信する際はハイフンを除外する
                 const barcode = rawInput.replace(/-/g, '');
 
                 if (!gasUrl || !gasUrl.startsWith('https://script.google.com/')) {
