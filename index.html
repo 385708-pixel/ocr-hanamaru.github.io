@@ -30,12 +30,6 @@
     <div class="max-w-md w-full bg-white rounded-xl shadow-lg overflow-hidden p-6 space-y-6">
         <div class="flex justify-between items-center border-b pb-2">
             <h1 class="text-xl font-bold text-gray-800">数字リーダー (OCR)</h1>
-            <button id="openSettingsBtn" class="text-gray-500 hover:text-gray-800 transition-colors p-1" title="設定">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-            </button>
         </div>
 
         <div class="relative">
@@ -96,26 +90,6 @@
         </div>
     </div>
 
-    <!-- 設定モーダル -->
-    <div id="settingsModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center hidden">
-        <div class="bg-white rounded-xl p-6 w-11/12 max-w-md shadow-2xl">
-            <h2 class="text-xl font-bold mb-4 text-gray-800 flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                設定
-            </h2>
-            <div class="mb-6">
-                <label for="gasUrl" class="block text-sm font-bold text-gray-700 mb-2">⚙️ GAS WebアプリURL (必須)</label>
-                <input type="text" id="gasUrl" placeholder="https://script.google.com/macros/s/.../exec" 
-                    class="w-full border border-gray-300 rounded-md p-3 text-sm focus:ring-blue-500 focus:border-blue-500">
-                <p class="text-xs text-gray-500 mt-2">スプレッドシート連携用のURLを入力してください。</p>
-            </div>
-            <div class="flex justify-end gap-3">
-                <button id="closeSettingsBtn" class="px-5 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-medium transition-colors">キャンセル</button>
-                <button id="saveSettingsBtn" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-md transition-colors">保存する</button>
-            </div>
-        </div>
-    </div>
-
     <script type="text/javascript">
         document.addEventListener('DOMContentLoaded', async () => {
             const video = document.getElementById('video');
@@ -126,20 +100,15 @@
             const clearBtn = document.getElementById('clearBtn');
             const statusMsg = document.getElementById('statusMsg');
             
-            const gasUrlInput = document.getElementById('gasUrl');
             const ocrProgress = document.getElementById('ocrProgress');
             const ocrProgressBar = document.getElementById('ocrProgressBar');
             
             const startCameraBtn = document.getElementById('startCameraBtn');
             const cameraOverlay = document.getElementById('cameraOverlay');
             const guideOverlay = document.getElementById('guideOverlay');
-
-            const settingsModal = document.getElementById('settingsModal');
-            const openSettingsBtn = document.getElementById('openSettingsBtn');
-            const closeSettingsBtn = document.getElementById('closeSettingsBtn');
-            const saveSettingsBtn = document.getElementById('saveSettingsBtn');
             
-            let currentGasUrl = localStorage.getItem('ocrScannerGasUrl') || "";
+            // ★ここにGAS WebアプリURLを設定してください★
+            const gasUrl = "https://script.google.com/macros/s/YOUR_GAS_ID/exec";
 
             let ocrWorker = null;
             let isWorkerReady = false;
@@ -201,27 +170,6 @@
                 statusMsg.innerHTML = "LINE連携の初期化に失敗しました。";
                 statusMsg.className = "text-center text-sm font-bold h-auto mt-2 text-red-600";
             }
-
-            openSettingsBtn.addEventListener('click', () => {
-                gasUrlInput.value = currentGasUrl;
-                settingsModal.classList.remove('hidden');
-            });
-            
-            closeSettingsBtn.addEventListener('click', () => {
-                settingsModal.classList.add('hidden');
-            });
-            
-            saveSettingsBtn.addEventListener('click', () => {
-                currentGasUrl = gasUrlInput.value.trim();
-                localStorage.setItem('ocrScannerGasUrl', currentGasUrl);
-                settingsModal.classList.add('hidden');
-                
-                statusMsg.textContent = "設定を保存しました。";
-                statusMsg.className = "text-center text-sm font-bold text-green-600";
-                setTimeout(() => { 
-                    if (statusMsg.textContent === "設定を保存しました。") statusMsg.textContent = ""; 
-                }, 3000);
-            });
 
             // 手動入力時にハイフンを自動補完する処理
             scanResultInput.addEventListener('input', (e) => {
@@ -418,14 +366,13 @@
             });
 
             sendBtn.addEventListener('click', () => {
-                const gasUrl = currentGasUrl; 
                 const rawInput = scanResultInput.value.trim(); 
                 
                 // スプレッドシートに送信する際はハイフンを除外する
                 const barcode = rawInput.replace(/-/g, '');
 
-                if (!gasUrl || !gasUrl.startsWith('https://script.google.com/')) {
-                    statusMsg.textContent = "❌ 右上の歯車アイコンからGASのURLを設定してください。";
+                if (!gasUrl || gasUrl === "https://script.google.com/macros/s/https://script.google.com/macros/s/AKfycbwqi9qSVsejkS2hl261LHtdYIV98yNUoHnWi7n-lmf6UKe3Pz5rF0u-TS58losLrbKJTQ/exec/exec" || !gasUrl.startsWith('https://script.google.com/')) {
+                    statusMsg.textContent = "❌ コード内のGAS URLを正しく設定してください。";
                     statusMsg.className = "text-center text-sm font-bold text-red-600";
                     return;
                 }
@@ -456,5 +403,4 @@
         });
     </script>
 </body>
-</html>
 </html>
