@@ -51,19 +51,16 @@
 
                 <video id="video" autoplay playsinline class="w-full h-full object-cover hidden"></video>
                 
-                <!-- 撮影の目安となるガイド枠 (3桁-3桁-4桁用に調整) -->
+                <!-- 撮影の目安となるガイド枠: スマホを離せるように枠を広く（w-95%, h-25%）変更 -->
                 <div id="guideOverlay" class="absolute inset-0 pointer-events-none flex items-center justify-center hidden overflow-hidden">
-                    <!-- 周囲を暗くし、中央をくり抜くデザイン -->
-                    <div class="w-[85%] h-[20%] border-2 border-green-500 flex items-center justify-center relative shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]">
-                        <div class="flex items-center text-green-500/80 text-xl font-bold font-mono tracking-[0.2em]">
-                            <!-- 透明な文字で幅を確保し、ハイフンだけを表示する (scale-xで長さを2倍に) -->
+                    <div class="w-[95%] h-[25%] border-2 border-green-500 flex items-center justify-center relative shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]">
+                        <div class="flex items-center text-green-500/80 text-2xl font-bold font-mono tracking-[0.2em]">
                             <span class="invisible">000</span><span class="mx-3 mb-1 transform scale-x-[2] inline-block">-</span><span class="invisible">000</span><span class="mx-3 mb-1 transform scale-x-[2] inline-block">-</span><span class="invisible">0000</span>
                         </div>
                         <span class="absolute -top-6 left-0 right-0 text-center text-white text-xs font-bold drop-shadow">枠に合わせると自動で読み取ります</span>
                     </div>
                 </div>
             </div>
-            <!-- デバッグや処理内容を確認したい場合は hidden を外すとプレビューが見れます -->
             <canvas id="canvas" class="hidden"></canvas>
             
             <button id="captureBtn" class="mt-3 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg shadow-md transition-colors flex justify-center items-center gap-2">
@@ -93,7 +90,6 @@
                 スプレッドシートに送信
             </button>
             <div id="statusMsg" class="text-center text-sm font-bold h-auto min-h-[1.5rem] text-gray-600"></div>
-            <!-- OCRの進捗表示用 (高速化したため一瞬で終わる可能性があります) -->
             <div id="ocrProgress" class="w-full bg-gray-200 rounded-full h-1.5 hidden mt-1">
                 <div id="ocrProgressBar" class="bg-indigo-600 h-1.5 rounded-full" style="width: 0%"></div>
             </div>
@@ -138,16 +134,13 @@
             const cameraOverlay = document.getElementById('cameraOverlay');
             const guideOverlay = document.getElementById('guideOverlay');
 
-            // モーダル関連の要素
             const settingsModal = document.getElementById('settingsModal');
             const openSettingsBtn = document.getElementById('openSettingsBtn');
             const closeSettingsBtn = document.getElementById('closeSettingsBtn');
             const saveSettingsBtn = document.getElementById('saveSettingsBtn');
             
-            // 現在のGAS URLを保持
             let currentGasUrl = localStorage.getItem('ocrScannerGasUrl') || "";
 
-            // --- 高速化: Tesseract Workerの事前準備 ---
             let ocrWorker = null;
             let isWorkerReady = false;
             let isScanning = false;
@@ -160,17 +153,15 @@
                     
                     ocrWorker = await Tesseract.createWorker('eng', 1, {
                         logger: m => {
-                            // 手動スキャン時（プログレスバーが表示されている時）のみプログレスバーを更新
                             if (m.status === 'recognizing text' && !ocrProgress.classList.contains('hidden')) {
                                 ocrProgressBar.style.width = `${m.progress * 100}%`;
                             }
                         }
                     });
                     
-                    // 精度向上のための設定
                     await ocrWorker.setParameters({
-                        tessedit_char_whitelist: '0123456789-', // 数字とハイフンのみ許可
-                        tessedit_pageseg_mode: 7, // (Treat the image as a single text line) 1行として認識
+                        tessedit_char_whitelist: '0123456789-', 
+                        tessedit_pageseg_mode: 7, 
                     });
                     
                     isWorkerReady = true;
@@ -180,31 +171,25 @@
                     console.error("Worker準備エラー:", err);
                 }
             }
-            // ページロード時に裏側で準備を開始
             prepareWorker();
 
-            // --- 画像前処理（二値化・グレースケール化） ---
             function preprocessImage(ctx, width, height) {
                 const imageData = ctx.getImageData(0, 0, width, height);
                 const data = imageData.data;
-                const threshold = 128; // 白黒に分ける閾値（必要に応じて調整）
+                const threshold = 128; 
 
                 for (let i = 0; i < data.length; i += 4) {
-                    // RGBから輝度（明るさ）を計算
                     const r = data[i];
                     const g = data[i + 1];
                     const b = data[i + 2];
                     const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
                     
-                    // 閾値を超えれば白（255）、それ以外は黒（0）にして文字を際立たせる
                     const color = brightness > threshold ? 255 : 0;
                     data[i] = data[i + 1] = data[i + 2] = color;
-                    // alpha(data[i+3])はそのまま
                 }
                 ctx.putImageData(imageData, 0, 0);
             }
 
-            // --- LIFF (LINE連携) の初期化 ---
             const myLiffId = "2010662857-EkXbgMvQ"; 
             try {
                 if (myLiffId !== "YOUR_LIFF_ID_HERE" && myLiffId !== "") {
@@ -217,7 +202,6 @@
                 statusMsg.className = "text-center text-sm font-bold h-auto mt-2 text-red-600";
             }
 
-            // --- 設定モーダルの制御 ---
             openSettingsBtn.addEventListener('click', () => {
                 gasUrlInput.value = currentGasUrl;
                 settingsModal.classList.remove('hidden');
@@ -239,25 +223,20 @@
                 }, 3000);
             });
 
-            // インプットに値があるか監視して送信ボタンを有効化
             scanResultInput.addEventListener('input', () => {
                 sendBtn.disabled = scanResultInput.value.trim() === "";
             });
 
-            // --- 自動読み取りのループ処理 ---
             async function autoScanLoop() {
                 if (!isAutoScanningActive) return;
                 
-                // スキャン実行条件: 準備完了 ＆ カメラ表示中 ＆ 結果が空 ＆ 現在スキャン中でない
                 if (isWorkerReady && !video.classList.contains('hidden') && scanResultInput.value.trim() === "" && !isScanning) {
-                    await performScan(true); // isAuto = true
+                    await performScan(true); 
                 }
                 
-                // スキャン間隔を 0.1秒(100ms) に短縮（超高速化）
                 setTimeout(autoScanLoop, 100);
             }
 
-            // --- カメラの起動 ---
             async function startCamera() {
                 try {
                     startCameraBtn.textContent = "起動中...";
@@ -266,7 +245,6 @@
 
                     let stream;
                     try {
-                        // 1. オートフォーカス（continuous）を優先してカメラを起動する
                         stream = await navigator.mediaDevices.getUserMedia({ 
                             video: { 
                                 facingMode: "environment", 
@@ -276,7 +254,6 @@
                             } 
                         });
                     } catch (e) {
-                        // 2. ブラウザが高度な設定に対応していない場合は通常のカメラ起動にフォールバック
                         console.warn("オートフォーカス指定がサポートされていないため、通常モードで起動します", e);
                         stream = await navigator.mediaDevices.getUserMedia({ 
                             video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } } 
@@ -291,7 +268,6 @@
                     cameraOverlay.classList.add('hidden');
                     statusMsg.textContent = "";
 
-                    // カメラ起動成功後に自動読み取りループを開始
                     isAutoScanningActive = true;
                     autoScanLoop();
 
@@ -316,21 +292,18 @@
             }
             startCameraBtn.addEventListener('click', startCamera);
 
-            // --- 画像の撮影とOCR実行 (共通関数) ---
             async function performScan(isAuto = false) {
                 if (isScanning || !video.srcObject || !isWorkerReady) return;
 
                 isScanning = true;
 
                 if (!isAuto) {
-                    // 手動スキャン時のUI更新
                     captureBtn.disabled = true;
                     statusMsg.textContent = "画像を解析中...";
                     statusMsg.className = "text-center text-sm font-bold text-indigo-600";
                     ocrProgress.classList.remove('hidden');
                     ocrProgressBar.style.width = '0%';
                 } else {
-                    // 自動スキャン時のUI更新
                     statusMsg.textContent = "自動で数字を探しています...";
                     statusMsg.className = "text-center text-sm font-bold text-gray-500 animate-pulse";
                 }
@@ -339,36 +312,31 @@
                 const vw = video.videoWidth;
                 const vh = video.videoHeight;
                 
-                // ガイド枠に合わせて、動画の中央部分（幅85%、高さ20%）だけを切り抜く
-                const cropW = vw * 0.85;
-                const cropH = vh * 0.20;
+                // ガイド枠に合わせて切り抜く範囲を拡大 (幅95%, 高さ25%)
+                const cropW = vw * 0.95;
+                const cropH = vh * 0.25;
                 const cropX = (vw - cropW) / 2;
                 const cropY = (vh - cropH) / 2;
 
-                // 速度向上のため、解析用のCanvasサイズを横幅400pxに最適化して縮小する
-                const targetW = 400;
+                // 枠を広げた分、解析キャンバスの解像度も上げて精度を保つ
+                const targetW = 600;
                 const targetH = Math.floor(cropH * (targetW / cropW));
 
                 canvas.width = targetW;
                 canvas.height = targetH;
                 
-                // 切り抜いた部分を縮小してCanvasへ描画
                 context.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
-
-                // 精度向上のため、Canvasに描画された画像を白黒二値化処理する
                 preprocessImage(context, targetW, targetH);
 
                 try {
                     const { data: { text } } = await ocrWorker.recognize(canvas);
 
-                    // 認識結果の整形処理
                     const cleanText = text.replace(/[^0-9\-]/g, ''); 
                     const numbersOnly = cleanText.replace(/\-/g, ''); 
                     
                     let formattedText = cleanText;
                     let isSuccess = false;
 
-                    // 数字がちょうど10桁読み取れた場合は成功とする
                     if (numbersOnly.length === 10) {
                         formattedText = `${numbersOnly.slice(0,3)}-${numbersOnly.slice(3,6)}-${numbersOnly.slice(6,10)}`;
                         isSuccess = true;
@@ -380,9 +348,8 @@
                         statusMsg.textContent = "✅ 読み取り完了！";
                         statusMsg.className = "text-center text-sm font-bold text-green-600";
                         statusMsg.classList.remove('animate-pulse');
-                        if (navigator.vibrate) navigator.vibrate([100, 50, 100]); // 成功時はバイブレーション
+                        if (navigator.vibrate) navigator.vibrate([100, 50, 100]); 
                     } else if (!isAuto) {
-                        // 手動スキャンの時だけ、10桁じゃなくても強制的にInputに入れる
                         if (formattedText) {
                             scanResultInput.value = formattedText;
                             sendBtn.disabled = false;
@@ -411,7 +378,6 @@
                 }
             }
 
-            // 手動撮影ボタンの処理
             captureBtn.addEventListener('click', () => {
                 if (!video.srcObject) {
                     statusMsg.textContent = "先にカメラを起動してください。";
@@ -423,18 +389,15 @@
                     statusMsg.className = "text-center text-sm font-bold text-yellow-600";
                     return;
                 }
-                performScan(false); // 手動スキャンを実行
+                performScan(false); 
             });
 
-            // --- クリアボタンの処理 ---
             clearBtn.addEventListener('click', () => {
                 scanResultInput.value = "";
                 sendBtn.disabled = true;
                 statusMsg.textContent = "";
-                // 値が空になったので、次の自動読み取りループが再開される
             });
 
-            // --- GASへの送信処理 ---
             sendBtn.addEventListener('click', () => {
                 const gasUrl = currentGasUrl; 
                 const barcode = scanResultInput.value.trim(); 
@@ -471,4 +434,5 @@
         });
     </script>
 </body>
+</html>
 </html>
