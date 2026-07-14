@@ -9,17 +9,14 @@
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     
     <script type="text/javascript">
-        // ページが完全に読み込まれた後に実行し、InvalidStateErrorを防ぐ
         window.addEventListener('load', function() {
             if ('serviceWorker' in navigator && window.isSecureContext) {
                 navigator.serviceWorker.getRegistrations().then(function(registrations) {
                     for (let registration of registrations) {
                         registration.unregister();
-                        console.log('他アプリとの干渉を防ぐため、Service Workerを解除しました。');
                     }
                 }).catch(function(err) {
-                    // サンドボックス環境などではエラーになるため、警告に留める
-                    console.warn('Service Workerの解除がスキップされました。環境によっては正常な動作です。', err.message);
+                    console.warn('Service Workerの解除がスキップされました。', err.message);
                 });
             }
         });
@@ -48,8 +45,12 @@
                 <!-- 撮影の目安となるガイド枠: スマホを離せるように枠を広く（w-95%, h-25%）変更 -->
                 <div id="guideOverlay" class="absolute inset-0 pointer-events-none flex items-center justify-center hidden overflow-hidden">
                     <div class="w-[95%] h-[20%] border-2 border-green-500 flex items-center justify-center relative shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]">
-                        <div class="flex items-center text-green-500/80 text-lg font-bold font-mono tracking-[0.2em]">
-                            <span class="invisible">000</span><span class="mx-2 mb-1">-</span><span class="invisible">000</span><span class="mx-2 mb-1">-</span><span class="invisible">0000</span>
+                        <div class="flex items-center text-green-500/80 font-bold font-mono tracking-[0.4em] translate-x-1">
+                            <span class="invisible text-xl">000</span>
+                            <span class="text-5xl leading-none mx-3 mb-2">-</span>
+                            <span class="invisible text-xl">000</span>
+                            <span class="text-5xl leading-none mx-3 mb-2">-</span>
+                            <span class="invisible text-xl">0000</span>
                         </div>
                         <span class="absolute -top-6 left-0 right-0 text-center text-white text-xs font-bold drop-shadow">枠に合わせると自動で読み取ります</span>
                     </div>
@@ -75,7 +76,6 @@
                     クリア
                 </button>
             </div>
-            <p class="text-xs text-gray-500 mt-1">※OCRは誤認識することがあります。必要に応じて手動で修正してください。</p>
         </div>
 
         <div class="space-y-2">
@@ -84,9 +84,6 @@
                 スプレッドシートに送信
             </button>
             <div id="statusMsg" class="text-center text-sm font-bold h-auto min-h-[1.5rem] text-gray-600"></div>
-            <div id="ocrProgress" class="w-full bg-gray-200 rounded-full h-1.5 hidden mt-1">
-                <div id="ocrProgressBar" class="bg-indigo-600 h-1.5 rounded-full" style="width: 0%"></div>
-            </div>
         </div>
     </div>
 
