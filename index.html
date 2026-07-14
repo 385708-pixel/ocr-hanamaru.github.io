@@ -108,7 +108,7 @@
             const guideOverlay = document.getElementById('guideOverlay');
             
             // ★ここにGAS WebアプリURLを設定してください★
-            const gasUrl = "https://script.google.com/macros/s/YOUR_GAS_ID/exec";
+            const gasUrl = "https://script.google.com/macros/s/AKfycbx31PCvA6hknuzRD-g2v6wfBd8lritJ2ktpS1k2jjKmHR2XNSPmgbpth2g2fSFnIairqQ/exec";
 
             let ocrWorker = null;
             let isWorkerReady = false;
@@ -371,7 +371,7 @@
                 // スプレッドシートに送信する際はハイフンを除外する
                 const barcode = rawInput.replace(/-/g, '');
 
-                if (!gasUrl || gasUrl === "https://script.google.com/macros/s/AKfycbx31PCvA6hknuzRD-g2v6wfBd8lritJ2ktpS1k2jjKmHR2XNSPmgbpth2g2fSFnIairqQ/exec" || !gasUrl.startsWith('https://script.google.com/')) {
+                if (!gasUrl || !gasUrl.startsWith('https://script.google.com/')) {
                     statusMsg.textContent = "❌ コード内のGAS URLを正しく設定してください。";
                     statusMsg.className = "text-center text-sm font-bold text-red-600";
                     return;
