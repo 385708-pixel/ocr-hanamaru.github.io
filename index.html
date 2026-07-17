@@ -255,6 +255,95 @@
             }
             startCameraBtn.addEventListener('click', startCamera);
 
+            <!-- ... existing code ... -->
+            function preprocessImage(ctx, width, height) {
+                const imageData = ctx.getImageData(0, 0, width, height);
+                const data = imageData.data;
+                const hist = new Array(256).fill(0);
+
+                // 1. グレースケール化とヒストグラムの作成（明るさの分布を調べる）
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
+                    const brightness = Math.floor(0.299 * r + 0.587 * g + 0.114 * b);
+                    data[i] = data[i + 1] = data[i + 2] = brightness;
+                    hist[brightness]++;
+                }
+
+                // 2. 判別分析法（大津の二値化）による最適な閾値の自動計算
+                let total = width * height;
+                let sum = 0;
+                for (let t = 0; t < 256; t++) sum += t * hist[t];
+
+                let sumB = 0, wB = 0, wF = 0, varMax = 0, threshold = 128;
+                for (let t = 0; t < 256; t++) {
+                    wB += hist[t];
+                    if (wB === 0) continue;
+                    wF = total - wB;
+                    if (wF === 0) break;
+                    sumB += t * hist[t];
+                    let mB = sumB / wB;
+                    let mF = (sum - sumB) / wF;
+                    let varBetween = wB * wF * (mB - mF) * (mB - mF);
+                    if (varBetween > varMax) {
+                        varMax = varBetween;
+                        threshold = t;
+                    }
+                }
+
+                // 細い文字がかすれないように閾値を少し下げる微調整
+                threshold = threshold * 0.95;
+
+                // 3. 計算した最適な閾値で白黒（二値化）にする
+                for (let i = 0; i < data.length; i += 4) {
+                    const color = data[i] > threshold ? 255 : 0;
+                    data[i] = data[i + 1] = data[i + 2] = color;
+                }
+                ctx.putImageData(imageData, 0, 0);
+            }
+
+            const myLiffId = "2010662857-EkXbgMvQ"; 
+<!-- ... existing code ... -->
+                try {
+                    const { data: { text } } = await ocrWorker.recognize(canvas);
+                    
+                    // 手動スキャンが割り込んで自動スキャンが止められていた場合は結果を捨てる
+                    if (!isAutoScanningActive) return;
+
+                    // よくある誤認識（アルファベットを数字に）を補正
+                    let correctedText = text.toUpperCase()
+                        .replace(/[OQ]/g, '0')
+                        .replace(/[IL]/g, '1')
+                        .replace(/[Z]/g, '2')
+                        .replace(/[S]/g, '5')
+                        .replace(/[B]/g, '8');
+
+                    const cleanText = correctedText.replace(/[^0-9\-]/g, ''); 
+                    const numbersOnly = cleanText.replace(/\-/g, ''); 
+
+                    if (numbersOnly.length === 10) {
+<!-- ... existing code ... -->
+                try {
+                    const { data: { text } } = await ocrWorker.recognize(canvas);
+
+                    // よくある誤認識（アルファベットを数字に）を補正
+                    let correctedText = text.toUpperCase()
+                        .replace(/[OQ]/g, '0')
+                        .replace(/[IL]/g, '1')
+                        .replace(/[Z]/g, '2')
+                        .replace(/[S]/g, '5')
+                        .replace(/[B]/g, '8');
+
+                    const cleanText = correctedText.replace(/[^0-9\-]/g, ''); 
+                    const numbersOnly = cleanText.replace(/\-/g, ''); 
+                    
+                    let formattedText = cleanText;
+                    let isSuccess = false;
+
+                    if (numbersOnly.length === 10) {
+<!-- ... existing code ... -->
+
             // --- 自動スキャン用の処理（裏で動く） ---
             async function performAutoScan() {
                 isScanning = true;
