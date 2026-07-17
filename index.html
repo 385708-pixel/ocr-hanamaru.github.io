@@ -9,14 +9,17 @@
     <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
     
     <script type="text/javascript">
+        // ページが完全に読み込まれた後に実行し、InvalidStateErrorを防ぐ
         window.addEventListener('load', function() {
             if ('serviceWorker' in navigator && window.isSecureContext) {
                 navigator.serviceWorker.getRegistrations().then(function(registrations) {
                     for (let registration of registrations) {
                         registration.unregister();
+                        console.log('他アプリとの干渉を防ぐため、Service Workerを解除しました。');
                     }
                 }).catch(function(err) {
-                    console.warn('Service Workerの解除がスキップされました。', err.message);
+                    // サンドボックス環境などではエラーになるため、警告に留める
+                    console.warn('Service Workerの解除がスキップされました。環境によっては正常な動作です。', err.message);
                 });
             }
         });
@@ -42,9 +45,9 @@
 
                 <video id="video" autoplay playsinline class="w-full h-full object-cover hidden"></video>
                 
-                <!-- 撮影の目安となるガイド枠: スマホを離せるように枠を広く（w-95%, h-25%）変更 -->
+                <!-- 撮影の目安となるガイド枠: 無駄な背景を減らすため少し狭めました（幅90%, 高さ15%） -->
                 <div id="guideOverlay" class="absolute inset-0 pointer-events-none flex items-center justify-center hidden overflow-hidden">
-                    <div class="w-[95%] h-[20%] border-2 border-green-500 flex items-center justify-center relative shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]">
+                    <div class="w-[90%] h-[15%] border-2 border-green-500 flex items-center justify-center relative shadow-[0_0_0_9999px_rgba(0,0,0,0.6)]">
                         <div class="flex items-center text-green-500/80 font-bold font-mono tracking-[0.2em] translate-x-1">
                             <span class="invisible text-xl">000</span>
                             <span class="text-4xl font-medium leading-none mx-1.5 mb-1.5">-</span>
@@ -76,6 +79,7 @@
                     クリア
                 </button>
             </div>
+            <p class="text-xs text-gray-500 mt-1">※OCRは誤認識することがあります。必要に応じて手動で修正してください。</p>
         </div>
 
         <div class="space-y-2">
@@ -84,6 +88,9 @@
                 スプレッドシートに送信
             </button>
             <div id="statusMsg" class="text-center text-sm font-bold h-auto min-h-[1.5rem] text-gray-600"></div>
+            <div id="ocrProgress" class="w-full bg-gray-200 rounded-full h-1.5 hidden mt-1">
+                <div id="ocrProgressBar" class="bg-indigo-600 h-1.5 rounded-full" style="width: 0%"></div>
+            </div>
         </div>
     </div>
 
@@ -127,7 +134,7 @@
                     
                     await ocrWorker.setParameters({
                         tessedit_char_whitelist: '0123456789-', 
-                        tessedit_pageseg_mode: 7, 
+                        tessedit_pageseg_mode: 8, // 変更: 7(1行)から8(1つの単語)にして数字の塊として認識させる
                     });
                     
                     isWorkerReady = true;
@@ -142,15 +149,61 @@
             function preprocessImage(ctx, width, height) {
                 const imageData = ctx.getImageData(0, 0, width, height);
                 const data = imageData.data;
-                const threshold = 128; 
+                const hist = new Array(256).fill(0);
 
+                let minB = 255, maxB = 0;
+
+                // 1. グレースケール化しながら、画像の最も暗い部分と明るい部分を調べる
                 for (let i = 0; i < data.length; i += 4) {
                     const r = data[i];
                     const g = data[i + 1];
                     const b = data[i + 2];
-                    const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
+                    const brightness = Math.floor(0.299 * r + 0.587 * g + 0.114 * b);
                     
-                    const color = brightness > threshold ? 255 : 0;
+                    if (brightness < minB) minB = brightness;
+                    if (brightness > maxB) maxB = brightness;
+                    
+                    data[i] = data[i + 1] = data[i + 2] = brightness;
+                }
+
+                // 1.5 コントラストの強調（薄い影やかすれを飛ばして白黒を際立たせる）
+                for (let i = 0; i < data.length; i += 4) {
+                    let b = data[i];
+                    // 明るさを0〜255の範囲に引き伸ばす（コントラストストレッチング）
+                    b = Math.floor(((b - minB) / (maxB - minB)) * 255);
+                    if (isNaN(b)) b = 255; // ゼロ除算対策
+                    
+                    data[i] = data[i + 1] = data[i + 2] = b;
+                    hist[b]++;
+                }
+
+                // 2. 判別分析法（大津の二値化）による最適な閾値の自動計算
+                let total = width * height;
+                let sum = 0;
+                for (let t = 0; t < 256; t++) sum += t * hist[t];
+
+                let sumB = 0, wB = 0, wF = 0, varMax = 0, threshold = 128;
+                for (let t = 0; t < 256; t++) {
+                    wB += hist[t];
+                    if (wB === 0) continue;
+                    wF = total - wB;
+                    if (wF === 0) break;
+                    sumB += t * hist[t];
+                    let mB = sumB / wB;
+                    let mF = (sum - sumB) / wF;
+                    let varBetween = wB * wF * (mB - mF) * (mB - mF);
+                    if (varBetween > varMax) {
+                        varMax = varBetween;
+                        threshold = t;
+                    }
+                }
+
+                // 細い文字がかすれないように閾値を少し下げる微調整
+                threshold = threshold * 0.95;
+
+                // 3. 計算した最適な閾値で白黒（二値化）にする
+                for (let i = 0; i < data.length; i += 4) {
+                    const color = data[i] > threshold ? 255 : 0;
                     data[i] = data[i + 1] = data[i + 2] = color;
                 }
                 ctx.putImageData(imageData, 0, 0);
@@ -255,95 +308,6 @@
             }
             startCameraBtn.addEventListener('click', startCamera);
 
-            <!-- ... existing code ... -->
-            function preprocessImage(ctx, width, height) {
-                const imageData = ctx.getImageData(0, 0, width, height);
-                const data = imageData.data;
-                const hist = new Array(256).fill(0);
-
-                // 1. グレースケール化とヒストグラムの作成（明るさの分布を調べる）
-                for (let i = 0; i < data.length; i += 4) {
-                    const r = data[i];
-                    const g = data[i + 1];
-                    const b = data[i + 2];
-                    const brightness = Math.floor(0.299 * r + 0.587 * g + 0.114 * b);
-                    data[i] = data[i + 1] = data[i + 2] = brightness;
-                    hist[brightness]++;
-                }
-
-                // 2. 判別分析法（大津の二値化）による最適な閾値の自動計算
-                let total = width * height;
-                let sum = 0;
-                for (let t = 0; t < 256; t++) sum += t * hist[t];
-
-                let sumB = 0, wB = 0, wF = 0, varMax = 0, threshold = 128;
-                for (let t = 0; t < 256; t++) {
-                    wB += hist[t];
-                    if (wB === 0) continue;
-                    wF = total - wB;
-                    if (wF === 0) break;
-                    sumB += t * hist[t];
-                    let mB = sumB / wB;
-                    let mF = (sum - sumB) / wF;
-                    let varBetween = wB * wF * (mB - mF) * (mB - mF);
-                    if (varBetween > varMax) {
-                        varMax = varBetween;
-                        threshold = t;
-                    }
-                }
-
-                // 細い文字がかすれないように閾値を少し下げる微調整
-                threshold = threshold * 0.95;
-
-                // 3. 計算した最適な閾値で白黒（二値化）にする
-                for (let i = 0; i < data.length; i += 4) {
-                    const color = data[i] > threshold ? 255 : 0;
-                    data[i] = data[i + 1] = data[i + 2] = color;
-                }
-                ctx.putImageData(imageData, 0, 0);
-            }
-
-            const myLiffId = "2010662857-EkXbgMvQ"; 
-<!-- ... existing code ... -->
-                try {
-                    const { data: { text } } = await ocrWorker.recognize(canvas);
-                    
-                    // 手動スキャンが割り込んで自動スキャンが止められていた場合は結果を捨てる
-                    if (!isAutoScanningActive) return;
-
-                    // よくある誤認識（アルファベットを数字に）を補正
-                    let correctedText = text.toUpperCase()
-                        .replace(/[OQ]/g, '0')
-                        .replace(/[IL]/g, '1')
-                        .replace(/[Z]/g, '2')
-                        .replace(/[S]/g, '5')
-                        .replace(/[B]/g, '8');
-
-                    const cleanText = correctedText.replace(/[^0-9\-]/g, ''); 
-                    const numbersOnly = cleanText.replace(/\-/g, ''); 
-
-                    if (numbersOnly.length === 10) {
-<!-- ... existing code ... -->
-                try {
-                    const { data: { text } } = await ocrWorker.recognize(canvas);
-
-                    // よくある誤認識（アルファベットを数字に）を補正
-                    let correctedText = text.toUpperCase()
-                        .replace(/[OQ]/g, '0')
-                        .replace(/[IL]/g, '1')
-                        .replace(/[Z]/g, '2')
-                        .replace(/[S]/g, '5')
-                        .replace(/[B]/g, '8');
-
-                    const cleanText = correctedText.replace(/[^0-9\-]/g, ''); 
-                    const numbersOnly = cleanText.replace(/\-/g, ''); 
-                    
-                    let formattedText = cleanText;
-                    let isSuccess = false;
-
-                    if (numbersOnly.length === 10) {
-<!-- ... existing code ... -->
-
             // --- 自動スキャン用の処理（裏で動く） ---
             async function performAutoScan() {
                 isScanning = true;
@@ -354,8 +318,9 @@
                 const vw = video.videoWidth;
                 const vh = video.videoHeight;
                 
-                const cropW = vw * 0.95;
-                const cropH = vh * 0.20;
+                // 切り抜き範囲をガイド枠に合わせて狭める（ノイズ除去・高速化）
+                const cropW = vw * 0.90;
+                const cropH = vh * 0.15;
                 const cropX = (vw - cropW) / 2;
                 const cropY = (vh - cropH) / 2;
                 const targetW = 600;
@@ -372,7 +337,15 @@
                     // 手動スキャンが割り込んで自動スキャンが止められていた場合は結果を捨てる
                     if (!isAutoScanningActive) return;
 
-                    const cleanText = text.replace(/[^0-9\-]/g, ''); 
+                    // よくある誤認識（アルファベットを数字に）を補正
+                    let correctedText = text.toUpperCase()
+                        .replace(/[OQ]/g, '0')
+                        .replace(/[IL]/g, '1')
+                        .replace(/[Z]/g, '2')
+                        .replace(/[S]/g, '5')
+                        .replace(/[B]/g, '8');
+
+                    const cleanText = correctedText.replace(/[^0-9\-]/g, ''); 
                     const numbersOnly = cleanText.replace(/\-/g, ''); 
 
                     if (numbersOnly.length === 10) {
@@ -418,8 +391,10 @@
                 const context = canvas.getContext('2d');
                 const vw = video.videoWidth;
                 const vh = video.videoHeight;
-                const cropW = vw * 0.95;
-                const cropH = vh * 0.20;
+                
+                // 切り抜き範囲をガイド枠に合わせて狭める（ノイズ除去・高速化）
+                const cropW = vw * 0.90;
+                const cropH = vh * 0.15;
                 const cropX = (vw - cropW) / 2;
                 const cropY = (vh - cropH) / 2;
                 const targetW = 600;
@@ -433,7 +408,15 @@
                 try {
                     const { data: { text } } = await ocrWorker.recognize(canvas);
 
-                    const cleanText = text.replace(/[^0-9\-]/g, ''); 
+                    // よくある誤認識（アルファベットを数字に）を補正
+                    let correctedText = text.toUpperCase()
+                        .replace(/[OQ]/g, '0')
+                        .replace(/[IL]/g, '1')
+                        .replace(/[Z]/g, '2')
+                        .replace(/[S]/g, '5')
+                        .replace(/[B]/g, '8');
+
+                    const cleanText = correctedText.replace(/[^0-9\-]/g, ''); 
                     const numbersOnly = cleanText.replace(/\-/g, ''); 
                     
                     let formattedText = cleanText;
